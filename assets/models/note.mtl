@@ -1,0 +1,10 @@
+# note.mtl - Untitled Music Game
+# Kd = base colour, Ke = emission (the neon glow the web client blooms).
+newmtl note_neon
+Ka 0 0 0
+Kd 0.15 0.9 0.95
+Ks 0.25 0.25 0.25
+Ke 0.12 0.82 0.92
+Ns 80
+d 1
+illum 2

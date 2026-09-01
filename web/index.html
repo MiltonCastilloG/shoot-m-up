@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Untitled Music Game</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+        background: #05060a;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        color: #cde8ff;
+      }
+      #scene {
+        position: fixed;
+        inset: 0;
+      }
+      #hud {
+        position: fixed;
+        top: 18px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 13px;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: #7fd7ff;
+        text-shadow: 0 0 12px rgba(60, 200, 255, 0.6);
+        pointer-events: none;
+      }
+      #damage {
+        position: fixed;
+        inset: 0;
+        background: radial-gradient(circle at center, transparent 40%, rgba(255, 40, 90, 0.55));
+        opacity: 0;
+        transition: opacity 0.5s ease-out;
+        pointer-events: none;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: rgba(3, 4, 8, 0.35);
+        pointer-events: none;
+      }
+      #overlay .big {
+        font-size: clamp(32px, 8vw, 76px);
+        letter-spacing: 0.2em;
+        color: #ff4f7f;
+        text-shadow: 0 0 30px rgba(255, 60, 120, 0.8);
+      }
+      #overlay .sub {
+        font-size: 13px;
+        letter-spacing: 0.3em;
+        color: #8aa9c4;
+      }
+      .hint {
+        position: fixed;
+        bottom: 16px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 11px;
+        letter-spacing: 0.24em;
+        color: #4d6a86;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="hud"></div>
+    <div id="damage"></div>
+    <div id="overlay" hidden>
+      <div class="big">GAME OVER</div>
+      <div class="sub">press R to restart</div>
+    </div>
+    <div class="hint">&larr; &rarr; move &nbsp;&bull;&nbsp; R restart</div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="/web/main.js"></script>
+  </body>
+</html>

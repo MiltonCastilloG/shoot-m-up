@@ -1,0 +1,10 @@
+# tile.mtl - Untitled Music Game
+# Kd = base colour, Ke = emission (the neon glow the web client blooms).
+newmtl tile_neon
+Ka 0 0 0
+Kd 0.04 0.05 0.08
+Ks 0.25 0.25 0.25
+Ke 0 0.16 0.2
+Ns 80
+d 1
+illum 2

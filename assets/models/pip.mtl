@@ -1,0 +1,10 @@
+# pip.mtl - Untitled Music Game
+# Kd = base colour, Ke = emission (the neon glow the web client blooms).
+newmtl pip_neon
+Ka 0 0 0
+Kd 0.3 1 0.55
+Ks 0.25 0.25 0.25
+Ke 0.16 0.78 0.36
+Ns 80
+d 1
+illum 2
