@@ -48,6 +48,16 @@ function serveStatic(req, res) {
 }
 
 function startServer(port, game) {
+  // Open Server-Sent-Events connections. The game's tick loop is the only
+  // clock: index.js calls broadcast(state) right after each game.tick(), so
+  // every client hears the beat the instant it happens.
+  const clients = new Set();
+
+  function broadcast(state) {
+    const payload = `data: ${JSON.stringify(state)}\n\n`;
+    for (const res of clients) res.write(payload);
+  }
+
   const server = http.createServer((req, res) => {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
@@ -61,6 +71,19 @@ function startServer(port, game) {
 
     if (req.method === 'GET' && req.url === '/state') {
       sendJson(res, 200, game.getState());
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/events') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.write(`data: ${JSON.stringify(game.getState())}\n\n`);
+      clients.add(res);
+      req.on('close', () => clients.delete(res));
       return;
     }
 
@@ -81,7 +104,9 @@ function startServer(port, game) {
     }
 
     if (req.method === 'POST' && req.url === '/reset') {
-      sendJson(res, 200, game.reset());
+      const state = game.reset();
+      broadcast(state);
+      sendJson(res, 200, state);
       return;
     }
 
@@ -97,7 +122,7 @@ function startServer(port, game) {
     console.log(`API + web client on http://localhost:${port}`);
   });
 
-  return server;
+  return { server, broadcast };
 }
 
 module.exports = { startServer };

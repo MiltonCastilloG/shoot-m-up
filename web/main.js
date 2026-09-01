@@ -1,9 +1,9 @@
 // 3D neon client for Untitled Music Game.
 //
-// Talks to the same server that serves this file:
-//   GET  /state           -> current game state
-//   POST /move  {direction:'left'|'right'}
-//   POST /reset
+// The game itself runs entirely in this tab: ./logic/game.js owns the grid,
+// health, falling notes and tick/collision rules, with zero dependency on
+// the server. The server here only hands out static files (this script,
+// index.html, /assets/models/*).
 //
 // All meshes come from the hand-editable OBJ files in /assets/models.
 // Materials (the neon glow) are assigned here so the bloom pass has
@@ -16,33 +16,43 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { setDirection, tick, getState, reset } from './logic/game.js';
 
 const GRID = 5;
 const HALF = (GRID - 1) / 2; // grid index -> world coord: (i - HALF)
 const BOTTOM_Z = GRID - 1 - HALF; // player row in world space
-const TICK_MS = 1000; // server ticks once per second
+const TICK_MS = 1000; // our own clock now; real cadence is measured at runtime
 
 // ---------------------------------------------------------------- renderer
 
 const canvas = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
-scene.fog = new THREE.Fog(0x05060a, 9, 20);
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 6.4, 7.4);
+// Fixed orthographic camera looking straight down. VIEW_HEIGHT is how many
+// world units (grid cells) are visible top-to-bottom; width follows aspect.
+const VIEW_HEIGHT = 9;
+function orthoFrustum() {
+  const aspect = window.innerWidth / window.innerHeight;
+  return { x: (VIEW_HEIGHT * aspect) / 2, y: VIEW_HEIGHT / 2 };
+}
+const f = orthoFrustum();
+const camera = new THREE.OrthographicCamera(-f.x, f.x, f.y, -f.y, 0.1, 100);
+camera.position.set(0, 20, 0);
+camera.up.set(0, 0, -1); // world -Z (far row) points up on screen
+camera.lookAt(0, 0, 0);
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.32, // strength
+  0.28, // strength
   0.5, // radius
   0.22, // threshold
 );
@@ -110,7 +120,7 @@ const mat = {
   note: new THREE.MeshStandardMaterial({
     color: 0x0e3438,
     emissive: 0x1ad0e0,
-    emissiveIntensity: 1.0,
+    emissiveIntensity: 0.65,
     roughness: 0.3,
     metalness: 0.55,
   }),
@@ -225,8 +235,16 @@ function start({ tileProto, playerProto, noteProto, pipProto, frameProto }) {
   let lastHealth = null;
   let pulseUntil = 0;
 
+  // Measured tick cadence: notes interpolate over the real gap between the
+  // last two states, not a guessed constant. With SSE this stays ~1000 ms.
+  let tickInterval = TICK_MS;
+  let lastTickAt = performance.now();
+
   function makeNote() {
-    const m = applyMaterial(noteProto.clone(), mat.note.clone());
+    const m = noteProto.clone();
+    const material = mat.note.clone();
+    applyMaterial(m, material);
+    m.userData.material = material; // the OBJ is a group; keep a handle to the material
     m.scale.setScalar(0.01);
     notesGroup.add(m);
     return m;
@@ -239,6 +257,10 @@ function start({ tileProto, playerProto, noteProto, pipProto, frameProto }) {
   function onState(s) {
     const now = performance.now();
 
+    const gap = now - lastTickAt;
+    if (gap > 200 && gap < 3000) tickInterval = gap;
+    lastTickAt = now;
+
     playerTargetX = s.square - HALF;
 
     // health
@@ -246,7 +268,6 @@ function start({ tileProto, playerProto, noteProto, pipProto, frameProto }) {
       damage.style.opacity = '1';
       setTimeout(() => (damage.style.opacity = '0'), 60);
       playerHitUntil = now + 260;
-      shakeUntil = now + 320;
     }
     lastHealth = s.health;
     pips.forEach((pip, i) => {
@@ -288,56 +309,43 @@ function start({ tileProto, playerProto, noteProto, pipProto, frameProto }) {
 
   // ------------------------------------------------------------ input
 
-  function send(path, body) {
-    fetch(path, {
-      method: 'POST',
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    }).catch(() => {});
-  }
-
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowLeft') send('/move', { direction: 'left' });
-    else if (e.key === 'ArrowRight') send('/move', { direction: 'right' });
-    else if (e.key === 'r' || e.key === 'R') send('/reset');
+    if (e.key === 'ArrowLeft') setDirection(-1);
+    else if (e.key === 'ArrowRight') setDirection(1);
+    else if (e.key === 'r' || e.key === 'R') onState(reset());
   });
 
-  // ------------------------------------------------------------ polling
+  // ------------------------------------------------------------ game clock
 
-  async function poll() {
-    try {
-      const res = await fetch('/state');
-      onState(await res.json());
-    } catch {
-      /* server not ready yet */
-    }
-  }
-  poll();
-  setInterval(poll, TICK_MS);
+  // The game runs on our own beat now; no server round-trip involved.
+  onState(getState());
+  setInterval(() => onState(tick()), TICK_MS);
 
   // ------------------------------------------------------------ render loop
 
-  let shakeUntil = 0;
+  let prevFrame = performance.now();
 
   function frameTick() {
     requestAnimationFrame(frameTick);
     const now = performance.now();
+    const dt = Math.min(100, now - prevFrame); // ms since last frame, clamped
+    prevFrame = now;
 
-    // player glide + hit flash
-    player.position.x += (playerTargetX - player.position.x) * 0.22;
+    // player glide (frame-rate independent) + hit flash
+    const glide = 1 - Math.exp(-dt / 70);
+    player.position.x += (playerTargetX - player.position.x) * glide;
     applyMaterial(player, now < playerHitUntil ? mat.playerHit : mat.player);
     player.rotation.y = Math.sin(now * 0.0012) * 0.12;
 
     // notes
     for (const p of live) {
-      const k = Math.min(1, (now - p.t0) / TICK_MS);
+      const k = Math.min(1, (now - p.t0) / tickInterval);
       p.mesh.position.x = p.col - HALF;
       p.mesh.position.z = p.fromZ + (p.toZ - p.fromZ) * k;
       p.mesh.position.y = 0.5 + Math.sin(now * 0.004 + p.col * 1.7) * 0.06;
       p.mesh.rotation.y = now * 0.0022 + p.col;
       p.mesh.rotation.x = now * 0.0013;
-      const sc = Math.min(1, p.mesh.scale.x + 0.09);
-      p.mesh.scale.setScalar(sc);
+      p.mesh.scale.setScalar(Math.min(1, p.mesh.scale.x + dt / 140));
     }
 
     // dying notes
@@ -345,11 +353,13 @@ function start({ tileProto, playerProto, noteProto, pipProto, frameProto }) {
       const k = (now - d.t0) / 320;
       if (k >= 1) {
         d.mesh.parent.remove(d.mesh);
+        d.mesh.userData.material?.dispose();
         return false;
       }
       d.mesh.scale.setScalar(Math.max(0.001, 1 - k) * (d.hit ? 1.6 : 1));
       d.mesh.position.y = 0.5 - k * 0.6;
-      d.mesh.material.emissiveIntensity = (d.hit ? 3.2 : 1.6) * (1 - k);
+      const dm = d.mesh.userData.material;
+      if (dm) dm.emissiveIntensity = (d.hit ? 2.2 : 1.2) * (1 - k);
       return true;
     });
 
@@ -364,12 +374,6 @@ function start({ tileProto, playerProto, noteProto, pipProto, frameProto }) {
     bloom.strength = BLOOM_BASE + pulse * 0.18;
     cyanLight.intensity = 26 + pulse * 12;
 
-    // camera idle + shake
-    const shake = now < shakeUntil ? (shakeUntil - now) / 320 : 0;
-    camera.position.x = Math.sin(now * 0.00022) * 0.5 + (Math.random() - 0.5) * shake * 0.5;
-    camera.position.y = 6.4 + (Math.random() - 0.5) * shake * 0.4;
-    camera.lookAt(0, 0.3, 0.4);
-
     composer.render();
   }
   frameTick();
@@ -378,7 +382,11 @@ function start({ tileProto, playerProto, noteProto, pipProto, frameProto }) {
 // ---------------------------------------------------------------- resize
 
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  const f = orthoFrustum();
+  camera.left = -f.x;
+  camera.right = f.x;
+  camera.top = f.y;
+  camera.bottom = -f.y;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
