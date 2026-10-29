@@ -66,6 +66,10 @@
         color: #ff4f7f;
         text-shadow: 0 0 30px rgba(255, 60, 120, 0.8);
       }
+      #overlay.paused .big {
+        color: #7fd7ff;
+        text-shadow: 0 0 30px rgba(60, 200, 255, 0.8);
+      }
       #overlay .sub {
         font-size: 13px;
         letter-spacing: 0.3em;
@@ -89,10 +93,10 @@
     <div id="hud"></div>
     <div id="damage"></div>
     <div id="overlay" hidden>
-      <div class="big">GAME OVER</div>
-      <div class="sub">press R to restart</div>
+      <div class="big" id="overlay-title">GAME OVER</div>
+      <div class="sub" id="overlay-sub">press R to restart</div>
     </div>
-    <div class="hint">&larr; &rarr; move &nbsp;&bull;&nbsp; R restart</div>
+    <div class="hint">&larr; &rarr; move &nbsp;&bull;&nbsp; space pause &nbsp;&bull;&nbsp; R restart</div>
 
     <script type="importmap">
       {

@@ -170,6 +170,8 @@ function applyMaterial(object, material) {
 
 const hud = document.getElementById('hud');
 const overlay = document.getElementById('overlay');
+const overlayTitle = document.getElementById('overlay-title');
+const overlaySub = document.getElementById('overlay-sub');
 const damage = document.getElementById('damage');
 
 Promise.all([
@@ -234,11 +236,37 @@ function start({ tileProto, playerProto, noteProto, pipProto, frameProto }) {
 
   let lastHealth = null;
   let pulseUntil = 0;
+  let paused = false;
 
   // Measured tick cadence: notes interpolate over the real gap between the
   // last two states, not a guessed constant. With SSE this stays ~1000 ms.
   let tickInterval = TICK_MS;
   let lastTickAt = performance.now();
+
+  // Freeze / unfreeze the game clock. Shared by Space-pause and game over;
+  // callers own whatever overlay text they show on top.
+  function setPaused(value) {
+    if (paused === value) return;
+    paused = value;
+    if (!paused) lastTickAt = performance.now();
+  }
+
+  function showOverlay(mode) {
+    if (mode === 'over') {
+      overlay.hidden = false;
+      overlay.classList.remove('paused');
+      overlayTitle.textContent = 'GAME OVER';
+      overlaySub.textContent = 'press R to restart';
+    } else if (mode === 'paused') {
+      overlay.hidden = false;
+      overlay.classList.add('paused');
+      overlayTitle.textContent = 'PAUSED';
+      overlaySub.textContent = 'press space to resume';
+    } else {
+      overlay.hidden = true;
+      overlay.classList.remove('paused');
+    }
+  }
 
   function makeNote() {
     const m = noteProto.clone();
@@ -278,10 +306,19 @@ function start({ tileProto, playerProto, noteProto, pipProto, frameProto }) {
 
     // hud + overlay
     const playing = s.gameState === 'playing';
-    hud.textContent = playing ? `score ${'◆'.repeat(s.health)}` : '';
-    overlay.hidden = s.gameState !== 'over';
+    if (s.gameState === 'over') {
+      setPaused(true);
+      hud.textContent = '';
+      showOverlay('over');
+    } else if (paused) {
+      hud.textContent = `score ${'◆'.repeat(s.health)}`;
+      showOverlay('paused');
+    } else {
+      hud.textContent = playing ? `score ${'◆'.repeat(s.health)}` : '';
+      showOverlay(null);
+    }
 
-    if (playing) pulseUntil = now + 180;
+    if (playing && !paused) pulseUntil = now + 180;
 
     // reconcile falling notes: each survivor dropped exactly one row
     const prev = live;
@@ -310,16 +347,29 @@ function start({ tileProto, playerProto, noteProto, pipProto, frameProto }) {
   // ------------------------------------------------------------ input
 
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowLeft') setDirection(-1);
-    else if (e.key === 'ArrowRight') setDirection(1);
-    else if (e.key === 'r' || e.key === 'R') onState(reset());
+    if (e.key === 'ArrowLeft') {
+      if (!paused) setDirection(-1);
+    } else if (e.key === 'ArrowRight') {
+      if (!paused) setDirection(1);
+    } else if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      if (getState().gameState === 'over') return;
+      setPaused(!paused);
+      showOverlay(paused ? 'paused' : null);
+    } else if (e.key === 'r' || e.key === 'R') {
+      setPaused(false);
+      onState(reset());
+    }
   });
 
   // ------------------------------------------------------------ game clock
 
   // The game runs on our own beat now; no server round-trip involved.
   onState(getState());
-  setInterval(() => onState(tick()), TICK_MS);
+  setInterval(() => {
+    if (paused) return;
+    onState(tick());
+  }, TICK_MS);
 
   // ------------------------------------------------------------ render loop
 
